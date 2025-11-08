@@ -16,5 +16,12 @@ View your app in AI Studio: https://ai.studio/apps/drive/17sDqieKDJX6OVyI4gIxZaa
 1. Install dependencies:
    `npm install`
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
+3. Start the ranking API (JSON Server):
+   `npm run api`
+   - Endpoint: `http://localhost:4000/ranking`
+   - Data file: `db.json`
+4. Run the app:
    `npm run dev`
+5. Abra em `http://localhost:3000/`
+
+Para permitir que outros jogadores vejam e gravem pontuações, mantenha o JSON Server executando em uma máquina acessível pela rede (use `--host 0.0.0.0`, já incluído no script) e compartilhe o endereço (ex.: `http://SEU_IP:4000/ranking`).

@@ -56,7 +56,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onOficina, onFases, onHistor
         <button onClick={onRanking} className="group px-6 py-6 bg-gray-800 hover:bg-pink-700 rounded-xl border border-gray-700 hover:border-pink-500 transition shadow-lg sm:col-span-3">
           <div className="text-center">
             <div className="text-lg font-bold text-white">Ranking</div>
-            <div className="text-xs text-gray-300">Top 10 com iniciais estilo arcade</div>
+            <div className="text-xs text-gray-300">Top 10 com iniciais </div>
           </div>
           <div className="mt-4 h-1 w-full bg-gray-700 overflow-hidden rounded">
             <div className="h-full bg-pink-500 group-hover:w-full w-1/3 transition-all"></div>

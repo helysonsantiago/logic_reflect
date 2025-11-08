@@ -18,6 +18,9 @@ import { InitialsModal } from './components/InitialsModal';
 import { RankingModal } from './components/RankingModal'
 import { ConfirmEffect } from './components/ConfirmEffect'
 
+// API endpoint para ranking compartilhado (JSON Server)
+const RANKING_API = 'http://localhost:4000/ranking';
+
 const EDITOR_GRID_SIZE = 10;
 const createBlankLevel = (): Level => ({
     name: `New Level ${new Date().toLocaleTimeString()}`,
@@ -85,6 +88,12 @@ const App: React.FC = () => {
   const gameIntervalRef = useRef<number | null>(null);
   const simCollectorRef = useRef<CollectorState | null>(null);
   const liveSimStateRef = useRef<SimulationState | null>(null);
+  const gameStatusRef = useRef<GameStatus>('SETUP');
+
+  // Mantém o status do jogo atualizado em uma ref para evitar closures obsoletas no setInterval
+  useEffect(() => {
+    gameStatusRef.current = gameStatus;
+  }, [gameStatus]);
   
   useEffect(() => {
     try {
@@ -99,10 +108,20 @@ const App: React.FC = () => {
       setSavedLevels(merged);
       localStorage.setItem('logicReflectLevels', JSON.stringify(merged));
 
-      const storedRanking = localStorage.getItem('logicReflectRanking');
-      if (storedRanking) {
-        try { setRanking(JSON.parse(storedRanking)); } catch {}
-      }
+      // Primeiro tenta carregar do servidor; se falhar, usa localStorage
+      fetch(RANKING_API)
+        .then(res => res.ok ? res.json() : Promise.reject())
+        .then((data: any[]) => {
+          const serverRanking = [...data].sort((a,b) => b.score - a.score).slice(0, 10);
+          setRanking(serverRanking);
+          try { localStorage.setItem('logicReflectRanking', JSON.stringify(serverRanking)); } catch {}
+        })
+        .catch(() => {
+          const storedRanking = localStorage.getItem('logicReflectRanking');
+          if (storedRanking) {
+            try { setRanking(JSON.parse(storedRanking)); } catch {}
+          }
+        });
     } catch (error) {
       console.error('Failed to load levels:', error);
     }
@@ -147,6 +166,8 @@ const App: React.FC = () => {
   }, [activeLevel, savedLevels]);
 
   const gameTick = useCallback(() => {
+      // Só processa ticks quando o jogo está efetivamente rodando
+      if (gameStatusRef.current !== 'RUNNING') return;
       if (!simCollectorRef.current || !liveSimStateRef.current || !currentLevel) return;
 
       const { x, y, direction } = simCollectorRef.current;
@@ -205,9 +226,12 @@ const App: React.FC = () => {
 
                   simCollectorRef.current = { ...simCollectorRef.current, x: nextX, y: nextY, direction: nextDirection, isTeleporting: false };
                   setCollector(simCollectorRef.current);
-                  setSimulationState({...liveSimStateRef.current!});
-                  
-                  gameIntervalRef.current = window.setInterval(gameTick, TICK_SPEED);
+                  setSimulationState({ ...liveSimStateRef.current! });
+
+                  // Reativa o loop de jogo apenas se ainda estivermos rodando
+                  if (gameStatusRef.current === 'RUNNING') {
+                    gameIntervalRef.current = window.setInterval(gameTick, TICK_SPEED);
+                  }
               }, 500);
               return;
           }
@@ -229,7 +253,7 @@ const App: React.FC = () => {
       
       simCollectorRef.current = { ...simCollectorRef.current, x: nextX, y: nextY, direction: nextDirection };
       setCollector(simCollectorRef.current);
-      setSimulationState({...liveSimStateRef.current});
+      setSimulationState({ ...liveSimStateRef.current });
   }, [currentLevel, placedTools, handleWin]);
 
   const handlePlay = () => {
@@ -364,7 +388,7 @@ const App: React.FC = () => {
     }
   };
 
-  const saveRankingEntry = useCallback((initials: string) => {
+  const saveRankingEntry = useCallback(async (initials: string) => {
     // Play confirm sound and burst effect
     try {
       const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -386,9 +410,23 @@ const App: React.FC = () => {
       level: currentLevel?.name,
       at: Date.now(),
     };
-    const newRanking = [...ranking, entry].sort((a,b) => b.score - a.score).slice(0, 10);
-    setRanking(newRanking);
-    localStorage.setItem('logicReflectRanking', JSON.stringify(newRanking));
+    // Tenta salvar no servidor; se falhar, faz fallback para localStorage
+    try {
+      const resp = await fetch(RANKING_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(entry),
+      });
+      if (!resp.ok) throw new Error('Failed to save to server');
+      const list = await fetch(RANKING_API).then(r => r.json());
+      const serverRanking = [...list].sort((a,b) => b.score - a.score).slice(0, 10);
+      setRanking(serverRanking);
+      try { localStorage.setItem('logicReflectRanking', JSON.stringify(serverRanking)); } catch {}
+    } catch {
+      const newRanking = [...ranking, entry].sort((a,b) => b.score - a.score).slice(0, 10);
+      setRanking(newRanking);
+      try { localStorage.setItem('logicReflectRanking', JSON.stringify(newRanking)); } catch {}
+    }
     setIsInitialsOpen(false);
   }, [ranking, currentLevel]);
 
