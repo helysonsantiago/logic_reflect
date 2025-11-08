@@ -21,76 +21,38 @@ import { ConfirmEffect } from './components/ConfirmEffect'
 import { MusicPlayer } from './components/MusicPlayer'
 import { SettingsModal } from './components/SettingsModal'
 
-// API endpoints (JSON Server)
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:4000';
+// === API AUTOMÁTICA: localhost (dev) ou Vercel (prod) ===
+const API_BASE = (() => {
+  if (typeof window === 'undefined') return 'https://db-logic-reflect.vercel.app';
+  const isLocal = window.location.hostname === 'localhost' || 
+                  window.location.hostname === '127.0.0.1' ||
+                  window.location.hostname.startsWith('192.168.');
+  return isLocal ? 'http://localhost:4000' : 'https://db-logic-reflect.vercel.app';
+})();
+
 const RANKING_API = `${API_BASE}/ranking`;
 const COMMUNITY_LEVELS_API = `${API_BASE}/communityLevels`;
 const COMMUNITY_RATINGS_API = `${API_BASE}/communityRatings`;
 
-// Git-only mode configuration (reads db.json from GitHub)
-const API_MODE = (import.meta.env.VITE_API_MODE || 'json-server') as 'json-server' | 'git';
-const GITHUB_OWNER = import.meta.env.VITE_GITHUB_OWNER || '';
-const GITHUB_REPO = import.meta.env.VITE_GITHUB_REPO || '';
-const GITHUB_REF = import.meta.env.VITE_GITHUB_REF || 'main';
-const GITHUB_TOKEN = import.meta.env.VITE_GITHUB_TOKEN || '';
-
-async function fetchGitDb(owner: string, repo: string, ref: string): Promise<{ ranking?: any[]; communityLevels?: any[]; communityRatings?: any[]; }>
-{
-  const url = `https://api.github.com/repos/${owner}/${repo}/contents/db.json?ref=${ref}`;
-  const res = await fetch(url, { headers: GITHUB_TOKEN ? { Authorization: `Bearer ${GITHUB_TOKEN}` } : undefined });
-  if (!res.ok) throw new Error('Failed to fetch GitHub db.json');
-  const data = await res.json();
-  const content = (data && data.content) ? atob(String(data.content).replace(/\n/g, '')) : '';
-  return JSON.parse(content || '{}');
-}
-
-async function loadGitDbMeta(owner: string, repo: string, ref: string): Promise<{ sha: string; json: any }>{
-  const url = `https://api.github.com/repos/${owner}/${repo}/contents/db.json?ref=${ref}`;
-  const res = await fetch(url, { headers: GITHUB_TOKEN ? { Authorization: `Bearer ${GITHUB_TOKEN}` } : undefined });
-  if (!res.ok) throw new Error('Failed to fetch GitHub db.json meta');
-  const meta = await res.json();
-  const content = (meta && meta.content) ? atob(String(meta.content).replace(/\n/g, '')) : '';
-  const json = JSON.parse(content || '{}');
-  return { sha: meta.sha, json };
-}
-
-async function updateGitDb(patch: (db: any) => any, message: string): Promise<any> {
-  if (!GITHUB_OWNER || !GITHUB_REPO || !GITHUB_TOKEN) throw new Error('Missing GitHub configuration');
-  const { sha, json } = await loadGitDbMeta(GITHUB_OWNER, GITHUB_REPO, GITHUB_REF);
-  const next = patch(json || {});
-  const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(next, null, 2))));
-  const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/db.json`;
-  const resp = await fetch(url, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${GITHUB_TOKEN}`,
-    },
-    body: JSON.stringify({ message, content: encoded, sha, branch: GITHUB_REF }),
-  });
-  if (!resp.ok) throw new Error('Failed to update GitHub db.json');
-  return resp.json();
-}
-
 const EDITOR_GRID_SIZE = 10;
 const createBlankLevel = (): Level => ({
-    name: `New Level ${new Date().toLocaleTimeString()}`,
-    grid: Array(EDITOR_GRID_SIZE).fill(0).map(() => Array(EDITOR_GRID_SIZE).fill('empty')),
-    startPosition: { x: -1, y: -1 },
-    startDirection: { dx: 1, dy: 0 },
-    inventory: { 'rotator-cw': 1, 'rotator-ccw': 1, 'mirror': 1 },
-    teleporters: [],
-    forceTiles: [],
-    highScore: 0,
-    totalCoins: 0,
-    origin: 'user',
-    createdBy: (typeof localStorage !== 'undefined' && localStorage.getItem('logicReflectAuthor')) || 'Você',
+  name: `New Level ${new Date().toLocaleTimeString()}`,
+  grid: Array(EDITOR_GRID_SIZE).fill(0).map(() => Array(EDITOR_GRID_SIZE).fill('empty')),
+  startPosition: { x: -1, y: -1 },
+  startDirection: { dx: 1, dy: 0 },
+  inventory: { 'rotator-cw': 1, 'rotator-ccw': 1, 'mirror': 1 },
+  teleporters: [],
+  forceTiles: [],
+  highScore: 0,
+  totalCoins: 0,
+  origin: 'user',
+  createdBy: (typeof localStorage !== 'undefined' && localStorage.getItem('logicReflectAuthor')) || 'Você',
 });
 
 const initialSimState = (): SimulationState => ({
-    collectedCoins: 0,
-    hasKey: false,
-    collectedItems: new Set(),
+  collectedCoins: 0,
+  hasKey: false,
+  collectedItems: new Set(),
 });
 
 type EditorSubState = {
@@ -99,9 +61,9 @@ type EditorSubState = {
 }
 
 type DirectionModalState = {
-    isOpen: boolean;
-    prompt: string;
-    onSelect: (direction: Direction) => void;
+  isOpen: boolean;
+  prompt: string;
+  onSelect: (direction: Direction) => void;
 }
 
 const App: React.FC = () => {
@@ -129,15 +91,12 @@ const App: React.FC = () => {
   const [communityLevels, setCommunityLevels] = useState<Level[]>([]);
   const [communityRatings, setCommunityRatings] = useState<CommunityRating[]>([]);
   const [authorName, setAuthorName] = useState<string>((typeof localStorage !== 'undefined' && localStorage.getItem('logicReflectAuthor')) || '');
-   const [isInitialsOpen, setIsInitialsOpen] = useState<boolean>(false);
-   const [isRankingOpen, setIsRankingOpen] = useState<boolean>(false);
-   const [showConfirmEffect, setShowConfirmEffect] = useState<boolean>(false);
-   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
-   const [isPlayingCommunity, setIsPlayingCommunity] = useState<boolean>(false);
-   
-   // remove auto-open da intro; agora abrimos após Start
-   // Intro não abre automaticamente; será acionada após Start
-  // useEffect(() => {}, []);
+  const [isInitialsOpen, setIsInitialsOpen] = useState<boolean>(false);
+  const [isRankingOpen, setIsRankingOpen] = useState<boolean>(false);
+  const [showConfirmEffect, setShowConfirmEffect] = useState<boolean>(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [isPlayingCommunity, setIsPlayingCommunity] = useState<boolean>(false);
+  
   const currentLevel = view === 'EDITOR' || (view === 'PLAY' && !activeLevel) ? editorLevel : activeLevel;
   const [collector, setCollector] = useState<CollectorState>({ x: -1, y: -1, direction: { dx: 1, dy: 0 }, visible: false });
   
@@ -147,51 +106,34 @@ const App: React.FC = () => {
   const gameStatusRef = useRef<GameStatus>('SETUP');
   const skipNextResetRef = useRef<boolean>(false);
 
-  // Mantém o status do jogo atualizado em uma ref para evitar closures obsoletas no setInterval
   useEffect(() => {
     gameStatusRef.current = gameStatus;
   }, [gameStatus]);
   
+  // Carrega ranking + níveis oficiais
   useEffect(() => {
     try {
       const stored = localStorage.getItem('logicReflectLevels');
       const existing = stored ? JSON.parse(stored) : [];
       const builtins = builtinLevels();
-      // Limpa níveis feitos até agora: mantém apenas níveis oficiais
       const merged = builtins;
       setSavedLevels(merged);
       localStorage.setItem('logicReflectLevels', JSON.stringify(merged));
-      if (API_MODE === 'git' && GITHUB_OWNER && GITHUB_REPO) {
-        fetchGitDb(GITHUB_OWNER, GITHUB_REPO, GITHUB_REF)
-          .then(db => {
-            const serverRanking = [...(db.ranking || [])].sort((a,b) => b.score - a.score).slice(0, 10);
-            setRanking(serverRanking);
-            setCommunityLevels(db.communityLevels || []);
-            setCommunityRatings(db.communityRatings || []);
-            try { localStorage.setItem('logicReflectRanking', JSON.stringify(serverRanking)); } catch {}
-          })
-          .catch(() => {
-            const storedRanking = localStorage.getItem('logicReflectRanking');
-            if (storedRanking) {
-              try { setRanking(JSON.parse(storedRanking)); } catch {}
-            }
-          });
-      } else {
-        // Primeiro tenta carregar do servidor; se falhar, usa localStorage
-        fetch(RANKING_API)
-          .then(res => res.ok ? res.json() : Promise.reject())
-          .then((data: any[]) => {
-            const serverRanking = [...data].sort((a,b) => b.score - a.score).slice(0, 10);
-            setRanking(serverRanking);
-            try { localStorage.setItem('logicReflectRanking', JSON.stringify(serverRanking)); } catch {}
-          })
-          .catch(() => {
-            const storedRanking = localStorage.getItem('logicReflectRanking');
-            if (storedRanking) {
-              try { setRanking(JSON.parse(storedRanking)); } catch {}
-            }
-          });
-      }
+
+      // Carrega ranking do JSON Server
+      fetch(RANKING_API)
+        .then(res => res.ok ? res.json() : Promise.reject())
+        .then((data: any[]) => {
+          const serverRanking = [...data].sort((a,b) => b.score - a.score).slice(0, 10);
+          setRanking(serverRanking);
+          try { localStorage.setItem('logicReflectRanking', JSON.stringify(serverRanking)); } catch {}
+        })
+        .catch(() => {
+          const storedRanking = localStorage.getItem('logicReflectRanking');
+          if (storedRanking) {
+            try { setRanking(JSON.parse(storedRanking)); } catch {}
+          }
+        });
     } catch (error) {
       console.error('Failed to load levels:', error);
     }
@@ -199,7 +141,6 @@ const App: React.FC = () => {
 
   // Carrega níveis e avaliações da comunidade
   useEffect(() => {
-    if (API_MODE === 'git') return; // já carregado junto do ranking via Git
     const fetchCommunity = async () => {
       try {
         const [levelsRes, ratingsRes] = await Promise.all([
@@ -242,7 +183,6 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!currentLevel) return;
     if (skipNextResetRef.current) {
-      // Evita reset imediato quando atualizamos o nível após a vitória
       skipNextResetRef.current = false;
       return;
     }
@@ -258,7 +198,6 @@ const App: React.FC = () => {
         const liveSimState = liveSimStateRef.current || initialSimState();
         const nextHigh = Math.max(currentHighScore, liveSimState.collectedCoins);
         const updatedLevel = { ...activeLevel, highScore: nextHigh, completedAt: activeLevel.completedAt || Date.now() };
-        // Atualiza ponteiro do nível sem resetar imediatamente o tabuleiro
         skipNextResetRef.current = true;
         setActiveLevel(updatedLevel);
         const newSavedLevels = savedLevels.map(l => l.name === updatedLevel.name ? updatedLevel : l);
@@ -268,7 +207,6 @@ const App: React.FC = () => {
   }, [activeLevel, savedLevels]);
 
   const gameTick = useCallback(() => {
-      // Só processa ticks quando o jogo está efetivamente rodando
       if (gameStatusRef.current !== 'RUNNING') return;
       if (!simCollectorRef.current || !liveSimStateRef.current || !currentLevel) return;
 
@@ -330,7 +268,6 @@ const App: React.FC = () => {
                   setCollector(simCollectorRef.current);
                   setSimulationState({ ...liveSimStateRef.current! });
 
-                  // Reativa o loop de jogo apenas se ainda estivermos rodando
                   if (gameStatusRef.current === 'RUNNING') {
                     gameIntervalRef.current = window.setInterval(gameTick, TICK_SPEED);
                   }
@@ -404,7 +341,6 @@ const App: React.FC = () => {
             newGrid[y][x] = 'teleporter';
             newTeleporters.push(newTeleporter);
 
-            // Pergunta direção APENAS quando posicionar a saída
             if (stage === 'out') {
                 setDirectionModal({
                     isOpen: true,
@@ -460,45 +396,11 @@ const App: React.FC = () => {
     setSavedLevels(newSavedLevels);
     localStorage.setItem('logicReflectLevels', JSON.stringify(newSavedLevels));
     alert(`Nível "${levelToSave.name}" salvo!`);
-    // Close win modal and return to editor for continuity
     resetBoard();
     setView('EDITOR');
   };
 
   const handlePublishLevel = async () => {
-    if (API_MODE === 'git') {
-      if (GITHUB_TOKEN && GITHUB_OWNER && GITHUB_REPO) {
-        try {
-          const name = (authorName || localStorage.getItem('logicReflectAuthor') || '').trim() || 'Anônimo';
-          const totalCoins = editorLevel.grid.flat().filter(t => t === 'coin').length;
-          const levelToPublish: Level = { ...editorLevel, totalCoins, origin: 'community', createdBy: name };
-          await updateGitDb((db: any) => {
-            const levels: any[] = Array.isArray(db.communityLevels) ? db.communityLevels : [];
-            const existing = levels.find(l => (l.createdBy || 'Anônimo') === name);
-            if (existing) {
-              // update existing, keep id
-              const updated = { ...existing, ...levelToPublish, id: existing.id };
-              db.communityLevels = levels.map(l => (l.id === existing.id ? updated : l));
-            } else {
-              const nextId = (levels.reduce((m, it) => Math.max(m, Number(it.id || 0)), 0) || 0) + 1;
-              db.communityLevels = [...levels, { ...levelToPublish, id: nextId }];
-            }
-            return db;
-          }, `Publish community level by ${name}`);
-          const db = await fetchGitDb(GITHUB_OWNER, GITHUB_REPO, GITHUB_REF);
-          setCommunityLevels(db.communityLevels || []);
-          alert('Fase publicada na comunidade (commit no Git)!');
-          setView('COMMUNITY_BROWSER');
-        } catch (e) {
-          console.error(e);
-          alert('Não foi possível publicar via GitHub. Verifique token/permissões.');
-        }
-        return;
-      }
-      const ghEditUrl = (GITHUB_OWNER && GITHUB_REPO) ? `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/edit/${GITHUB_REF}/db.json` : 'https://github.com/';
-      alert(`Modo Git ativado: configure VITE_GITHUB_TOKEN para publicar automaticamente.\nSem token, edite via PR: ${ghEditUrl}`);
-      return;
-    }
     const name = (authorName || localStorage.getItem('logicReflectAuthor') || '').trim() || 'Anônimo';
     const totalCoins = editorLevel.grid.flat().filter(t => t === 'coin').length;
     const levelToPublish: Level = {
@@ -507,8 +409,8 @@ const App: React.FC = () => {
       origin: 'community',
       createdBy: name,
     };
+
     try {
-      // Limite: 1 fase por usuário. Se já existir, atualiza; senão cria.
       const existing = communityLevels.find(l => (l.createdBy || 'Anônimo') === name);
       const url = existing?.id ? `${COMMUNITY_LEVELS_API}/${existing.id}` : COMMUNITY_LEVELS_API;
       const method = existing?.id ? 'PATCH' : 'POST';
@@ -523,42 +425,15 @@ const App: React.FC = () => {
       alert('Fase publicada na comunidade!');
       setView('COMMUNITY_BROWSER');
     } catch (e) {
-      alert('Não foi possível publicar. Verifique se o JSON Server está rodando em http://localhost:4000.');
+      alert('Erro ao publicar. Verifique se o servidor está online.');
     }
   };
 
   const handleRateCommunityLevel = async (level: Level, stars: number) => {
-    if (API_MODE === 'git') {
-      if (GITHUB_TOKEN && GITHUB_OWNER && GITHUB_REPO) {
-        try {
-          const userName = (authorName || localStorage.getItem('logicReflectAuthor') || '').trim() || 'Visitante';
-          await updateGitDb((db: any) => {
-            const ratings: any[] = Array.isArray(db.communityRatings) ? db.communityRatings : [];
-            const existing = ratings.find(r => r.levelId === level.id && r.user === userName);
-            if (existing) {
-              db.communityRatings = ratings.map(r => r.id === existing.id ? { ...existing, stars, at: Date.now() } : r);
-            } else {
-              const nextId = (ratings.reduce((m, it) => Math.max(m, Number(it.id || 0)), 0) || 0) + 1;
-              db.communityRatings = [...ratings, { levelId: level.id, user: userName, stars, at: Date.now(), id: nextId }];
-            }
-            return db;
-          }, `Rate community level ${level.id} by ${userName}`);
-          const db = await fetchGitDb(GITHUB_OWNER, GITHUB_REPO, GITHUB_REF);
-          setCommunityRatings(db.communityRatings || []);
-          alert('Obrigado pela avaliação! (gravada via commit)');
-        } catch (e) {
-          console.error(e);
-          alert('Não foi possível avaliar via GitHub. Verifique token/permissões.');
-        }
-        return;
-      }
-      const ghEditUrl = (GITHUB_OWNER && GITHUB_REPO) ? `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/edit/${GITHUB_REF}/db.json` : 'https://github.com/';
-      alert(`Modo Git ativado: configure VITE_GITHUB_TOKEN para avaliar automaticamente.\nSem token, edite via PR: ${ghEditUrl}`);
-      return;
-    }
-    if (!level.id) { alert('Nível inválido para avaliação.'); return; }
+    if (!level.id) return;
     const userName = (authorName || localStorage.getItem('logicReflectAuthor') || '').trim() || 'Visitante';
     const existing = communityRatings.find(r => r.levelId === level.id && r.user === userName);
+
     try {
       let resp: Response;
       if (existing?.id) {
@@ -568,18 +443,17 @@ const App: React.FC = () => {
           body: JSON.stringify({ stars, at: Date.now() }),
         });
       } else {
-        const entry = { levelId: level.id, user: userName, stars, at: Date.now() } as CommunityRating;
         resp = await fetch(COMMUNITY_RATINGS_API, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(entry),
+          body: JSON.stringify({ levelId: level.id, user: userName, stars, at: Date.now() }),
         });
       }
-      if (!resp.ok) throw new Error('Erro ao avaliar');
+      if (!resp.ok) throw new Error();
       const rts = await fetch(COMMUNITY_RATINGS_API).then(r => r.json());
       setCommunityRatings(rts);
     } catch (e) {
-      alert('Não foi possível enviar sua avaliação. Verifique o JSON Server.');
+      alert('Erro ao enviar avaliação.');
     }
   };
 
@@ -612,7 +486,6 @@ const App: React.FC = () => {
   };
 
   const saveRankingEntry = useCallback(async (initials: string) => {
-    // Play confirm sound and burst effect
     try {
       const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
       const now = ctx.currentTime;
@@ -633,51 +506,22 @@ const App: React.FC = () => {
       level: currentLevel?.name,
       at: Date.now(),
     };
-    if (API_MODE === 'git') {
-      if (GITHUB_TOKEN && GITHUB_OWNER && GITHUB_REPO) {
-        try {
-          await updateGitDb((db: any) => {
-            const list: any[] = Array.isArray(db.ranking) ? db.ranking : [];
-            const nextId = (list.reduce((m, it) => Math.max(m, Number(it.id || 0)), 0) || 0) + 1;
-            db.ranking = [...list, { ...entry, id: nextId }];
-            return db;
-          }, `Add ranking entry by ${initials}`);
-          const db = await fetchGitDb(GITHUB_OWNER, GITHUB_REPO, GITHUB_REF);
-          const serverRanking = [...(db.ranking || [])].sort((a,b) => b.score - a.score).slice(0, 10);
-          setRanking(serverRanking);
-          try { localStorage.setItem('logicReflectRanking', JSON.stringify(serverRanking)); } catch {}
-        } catch (e) {
-          console.error(e);
-          // Fallback local
-          const newRanking = [...ranking, entry].sort((a,b) => b.score - a.score).slice(0, 10);
-          setRanking(newRanking);
-          try { localStorage.setItem('logicReflectRanking', JSON.stringify(newRanking)); } catch {}
-        }
-        setIsInitialsOpen(false);
-        return;
-      }
-      const newRanking = [...ranking, entry].sort((a,b) => b.score - a.score).slice(0, 10);
-      setRanking(newRanking);
-      try { localStorage.setItem('logicReflectRanking', JSON.stringify(newRanking)); } catch {}
-      setIsInitialsOpen(false);
-      return;
-    }
-    // Tenta salvar no servidor; se falhar, faz fallback para localStorage
+
     try {
       const resp = await fetch(RANKING_API, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(entry),
       });
-      if (!resp.ok) throw new Error('Failed to save to server');
+      if (!resp.ok) throw new Error();
       const list = await fetch(RANKING_API).then(r => r.json());
       const serverRanking = [...list].sort((a,b) => b.score - a.score).slice(0, 10);
       setRanking(serverRanking);
-      try { localStorage.setItem('logicReflectRanking', JSON.stringify(serverRanking)); } catch {}
+      localStorage.setItem('logicReflectRanking', JSON.stringify(serverRanking));
     } catch {
       const newRanking = [...ranking, entry].sort((a,b) => b.score - a.score).slice(0, 10);
       setRanking(newRanking);
-      try { localStorage.setItem('logicReflectRanking', JSON.stringify(newRanking)); } catch {}
+      localStorage.setItem('logicReflectRanking', JSON.stringify(newRanking));
     }
     setIsInitialsOpen(false);
   }, [ranking, currentLevel]);
@@ -708,7 +552,7 @@ const App: React.FC = () => {
             ratingsSummary={ratingsSummary}
             onPlay={(lvl) => { setIsPlayingCommunity(true); handleLoadLevelToPlay(lvl); }}
             onRate={(lvl, stars) => handleRateCommunityLevel(lvl, stars)}
-            ratingsEnabled={API_MODE !== 'git' || !!GITHUB_TOKEN}
+            ratingsEnabled={true}
           />
         );
       case 'EDITOR':
@@ -762,12 +606,10 @@ const App: React.FC = () => {
     }
   };
 
-  // Ajusta trilha conforme contexto (menu/abertura, jogo, comunidade)
   useEffect(() => {
     let context: 'menu' | 'play' | 'community' = 'menu';
     if (view === 'PLAY') context = isPlayingCommunity ? 'community' : 'play';
     else if (view === 'COMMUNITY_BROWSER') context = 'community';
-    // Qualquer estado de abertura/intro permanece com a trilha de menu
     document.dispatchEvent(new CustomEvent('logicReflect:music:setContext', { detail: { context } }));
   }, [view, isStartOpen, isIntroOpen, isPlayingCommunity]);
 
@@ -778,7 +620,7 @@ const App: React.FC = () => {
           <h1 className="text-4xl sm:text-5xl font-bold tracking-wider text-cyan-300">Logic <span className="text-indigo-400">Reflect</span></h1>
           {(!isStartOpen && !isIntroOpen) && view !== 'MENU' && (
              <button onClick={view === 'PLAY' && !activeLevel ? handleReturnToEditor : handleReturnToMenu} className='mt-4 px-4 py-2 bg-purple-600 rounded-lg hover:bg-purple-500 transition-colors'>
-                &larr; {view === 'PLAY' && !activeLevel ? 'Voltar para Oficina' : 'Menu Principal'}
+                ← {view === 'PLAY' && !activeLevel ? 'Voltar para Oficina' : 'Menu Principal'}
             </button>
           )}
         </header>
