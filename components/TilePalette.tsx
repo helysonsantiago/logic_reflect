@@ -46,7 +46,8 @@ export const TilePalette: React.FC<TilePaletteProps> = ({
     if (subState.teleporterPlacement) {
         onSubStateChange(s => ({...s, teleporterPlacement: null}));
     } else {
-        const nextPairId = Math.floor(level.teleporters.length / 2);
+        const existingIds = level.teleporters.map(t => t.id);
+        const nextPairId = existingIds.length ? Math.max(...existingIds) + 1 : 0;
         onSelectionChange(null);
         onSubStateChange(s => ({...s, teleporterPlacement: { pairId: nextPairId, stage: 'in'}}));
     }

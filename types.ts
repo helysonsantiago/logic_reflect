@@ -23,6 +23,7 @@ export type Teleporter = {
 }
 
 export type Level = {
+  id?: number; // optional id from server for community levels
   name: string;
   grid: Grid;
   startPosition: { x: number; y: number };
@@ -33,7 +34,7 @@ export type Level = {
   highScore?: number;
   totalCoins?: number;
   completedAt?: number; // timestamp when level was first completed
-  origin?: 'builtin' | 'user';
+  origin?: 'builtin' | 'user' | 'community';
   createdBy?: string; // e.g., 'Equipe' or player name
 };
 
@@ -55,7 +56,7 @@ export type SimulationState = {
 
 export type GameStatus = 'SETUP' | 'RUNNING' | 'WIN' | 'FAIL' | 'ALL_LEVELS_COMPLETE';
 
-export type AppView = 'MENU' | 'EDITOR' | 'LEVEL_BROWSER' | 'PLAY';
+export type AppView = 'MENU' | 'EDITOR' | 'LEVEL_BROWSER' | 'COMMUNITY_BROWSER' | 'PLAY';
 
 export type PaletteSelection = TileType | 'teleporter-editor' | 'force-tile-editor' | 'coin' | 'key' | 'gate';
 
@@ -65,4 +66,13 @@ export type RankingEntry = {
   score: number;    // e.g., collected coins
   level?: string;   // optional level name
   at: number;       // timestamp
+};
+
+// Community ratings for levels stored on the server
+export type CommunityRating = {
+  id?: number;
+  levelId: number;   // id of the community level
+  user: string;      // display name
+  stars: number;     // 1..5
+  at: number;        // timestamp
 };

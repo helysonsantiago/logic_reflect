@@ -3,12 +3,13 @@ import React from 'react';
 interface MainMenuProps {
   onOficina: () => void;
   onFases: () => void;
+  onComunidade: () => void;
   onHistoria: () => void;
   onRanking: () => void;
   totalCoins: number;
 }
 
-export const MainMenu: React.FC<MainMenuProps> = ({ onOficina, onFases, onHistoria, onRanking, totalCoins }) => {
+export const MainMenu: React.FC<MainMenuProps> = ({ onOficina, onFases, onComunidade, onHistoria, onRanking, totalCoins }) => {
   return (
     <div className="space-y-6">
       <h2 className="text-3xl sm:text-4xl font-extrabold text-center">
@@ -40,6 +41,16 @@ export const MainMenu: React.FC<MainMenuProps> = ({ onOficina, onFases, onHistor
           </div>
           <div className="mt-4 h-1 w-full bg-gray-700 overflow-hidden rounded">
             <div className="h-full bg-indigo-500 group-hover:w-full w-1/3 transition-all"></div>
+          </div>
+        </button>
+
+        <button onClick={onComunidade} className="group px-6 py-6 bg-gray-800 hover:bg-cyan-700 rounded-xl border border-gray-700 hover:border-cyan-500 transition shadow-lg">
+          <div className="text-left">
+            <div className="text-lg font-bold text-white">Fases da Comunidade</div>
+            <div className="text-xs text-gray-300">Crie, publique e avalie fases</div>
+          </div>
+          <div className="mt-4 h-1 w-full bg-gray-700 overflow-hidden rounded">
+            <div className="h-full bg-cyan-500 group-hover:w-full w-1/3 transition-all"></div>
           </div>
         </button>
 

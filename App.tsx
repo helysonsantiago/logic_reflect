@@ -7,9 +7,10 @@ import { TilePalette } from './components/TilePalette';
 import { EditorControls } from './components/EditorControls';
 import { MainMenu } from './components/MainMenu';
 import { LevelBrowser } from './components/LevelBrowser';
+import { CommunityBrowser } from './components/CommunityBrowser';
 import { DirectionModal } from './components/DirectionModal';
 import { TICK_SPEED } from './constants';
-import type { GameStatus, PlacedTool, ToolType, CollectorState, Direction, Level, AppView, PaletteSelection, Grid as GridType, TileType, SimulationState, Teleporter, RankingEntry } from './types';
+import type { GameStatus, PlacedTool, ToolType, CollectorState, Direction, Level, AppView, PaletteSelection, Grid as GridType, TileType, SimulationState, Teleporter, RankingEntry, CommunityRating } from './types';
 import { StoryModal } from './components/StoryModal';
 import { IntroCinematic } from './components/IntroCinematic';
 import { StartScreen } from './components/StartScreen';
@@ -17,9 +18,13 @@ import { builtinLevels } from './levels';
 import { InitialsModal } from './components/InitialsModal';
 import { RankingModal } from './components/RankingModal'
 import { ConfirmEffect } from './components/ConfirmEffect'
+import { MusicPlayer } from './components/MusicPlayer'
+import { SettingsModal } from './components/SettingsModal'
 
-// API endpoint para ranking compartilhado (JSON Server)
+// API endpoints (JSON Server)
 const RANKING_API = 'http://localhost:4000/ranking';
+const COMMUNITY_LEVELS_API = 'http://localhost:4000/communityLevels';
+const COMMUNITY_RATINGS_API = 'http://localhost:4000/communityRatings';
 
 const EDITOR_GRID_SIZE = 10;
 const createBlankLevel = (): Level => ({
@@ -75,9 +80,14 @@ const App: React.FC = () => {
   const [isIntroOpen, setIsIntroOpen] = useState<boolean>(false);
   const [isStartOpen, setIsStartOpen] = useState<boolean>(true);
   const [ranking, setRanking] = useState<RankingEntry[]>([]);
+  const [communityLevels, setCommunityLevels] = useState<Level[]>([]);
+  const [communityRatings, setCommunityRatings] = useState<CommunityRating[]>([]);
+  const [authorName, setAuthorName] = useState<string>((typeof localStorage !== 'undefined' && localStorage.getItem('logicReflectAuthor')) || '');
    const [isInitialsOpen, setIsInitialsOpen] = useState<boolean>(false);
    const [isRankingOpen, setIsRankingOpen] = useState<boolean>(false);
    const [showConfirmEffect, setShowConfirmEffect] = useState<boolean>(false);
+   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+   const [isPlayingCommunity, setIsPlayingCommunity] = useState<boolean>(false);
    
    // remove auto-open da intro; agora abrimos após Start
    // Intro não abre automaticamente; será acionada após Start
@@ -101,11 +111,8 @@ const App: React.FC = () => {
       const stored = localStorage.getItem('logicReflectLevels');
       const existing = stored ? JSON.parse(stored) : [];
       const builtins = builtinLevels();
-      const byName = new Map<string, any>(existing.map((l: any) => [l.name, l]));
-      for (const lvl of builtins) {
-        if (!byName.has(lvl.name)) byName.set(lvl.name, lvl);
-      }
-      const merged = Array.from(byName.values());
+      // Limpa níveis feitos até agora: mantém apenas níveis oficiais
+      const merged = builtins;
       setSavedLevels(merged);
       localStorage.setItem('logicReflectLevels', JSON.stringify(merged));
 
@@ -126,6 +133,29 @@ const App: React.FC = () => {
     } catch (error) {
       console.error('Failed to load levels:', error);
     }
+  }, []);
+
+  // Carrega níveis e avaliações da comunidade
+  useEffect(() => {
+    const fetchCommunity = async () => {
+      try {
+        const [levelsRes, ratingsRes] = await Promise.all([
+          fetch(COMMUNITY_LEVELS_API),
+          fetch(COMMUNITY_RATINGS_API),
+        ]);
+        if (levelsRes.ok) {
+          const lvls = await levelsRes.json();
+          setCommunityLevels(lvls);
+        }
+        if (ratingsRes.ok) {
+          const rts = await ratingsRes.json();
+          setCommunityRatings(rts);
+        }
+      } catch (e) {
+        console.warn('Falha ao carregar dados da comunidade:', e);
+      }
+    };
+    fetchCommunity();
   }, []);
 
   const resetBoard = useCallback(() => {
@@ -307,21 +337,24 @@ const App: React.FC = () => {
         if (editorSubState.teleporterPlacement) {
             const { pairId, stage } = editorSubState.teleporterPlacement;
             
-            const newTeleporter: Omit<Teleporter, 'exitDirection'> & {exitDirection?: Direction} = { id: pairId, type: stage, x, y };
+            const newTeleporter: Teleporter = { id: pairId, type: stage, x, y, exitDirection: stage === 'in' ? editorLevel.startDirection : { dx: 1, dy: 0 } };
             newGrid[y][x] = 'teleporter';
-            newTeleporters.push(newTeleporter as Teleporter);
+            newTeleporters.push(newTeleporter);
 
-            setDirectionModal({
-                isOpen: true,
-                prompt: `Qual a direção de saída deste portal?`,
-                onSelect: (direction) => {
-                    setEditorLevel(prev => ({
-                        ...prev,
-                        teleporters: prev.teleporters.map(t => t.x === x && t.y === y ? {...t, exitDirection: direction} : t)
-                    }));
-                    setDirectionModal({ isOpen: false, prompt: '', onSelect: () => {} });
-                }
-            });
+            // Pergunta direção APENAS quando posicionar a saída
+            if (stage === 'out') {
+                setDirectionModal({
+                    isOpen: true,
+                    prompt: `Qual a direção de saída deste portal?`,
+                    onSelect: (direction) => {
+                        setEditorLevel(prev => ({
+                            ...prev,
+                            teleporters: prev.teleporters.map(t => t.x === x && t.y === y ? {...t, exitDirection: direction} : t)
+                        }));
+                        setDirectionModal({ isOpen: false, prompt: '', onSelect: () => {} });
+                    }
+                });
+            }
 
             if (stage === 'in') {
                 setEditorSubState(s => ({ ...s, teleporterPlacement: { pairId, stage: 'out' }}));
@@ -367,6 +400,63 @@ const App: React.FC = () => {
     // Close win modal and return to editor for continuity
     resetBoard();
     setView('EDITOR');
+  };
+
+  const handlePublishLevel = async () => {
+    const name = (authorName || localStorage.getItem('logicReflectAuthor') || '').trim() || 'Anônimo';
+    const totalCoins = editorLevel.grid.flat().filter(t => t === 'coin').length;
+    const levelToPublish: Level = {
+      ...editorLevel,
+      totalCoins,
+      origin: 'community',
+      createdBy: name,
+    };
+    try {
+      // Limite: 1 fase por usuário. Se já existir, atualiza; senão cria.
+      const existing = communityLevels.find(l => (l.createdBy || 'Anônimo') === name);
+      const url = existing?.id ? `${COMMUNITY_LEVELS_API}/${existing.id}` : COMMUNITY_LEVELS_API;
+      const method = existing?.id ? 'PATCH' : 'POST';
+      const resp = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(levelToPublish),
+      });
+      if (!resp.ok) throw new Error('Erro ao publicar');
+      const lvls = await fetch(COMMUNITY_LEVELS_API).then(r => r.json());
+      setCommunityLevels(lvls);
+      alert('Fase publicada na comunidade!');
+      setView('COMMUNITY_BROWSER');
+    } catch (e) {
+      alert('Não foi possível publicar. Verifique se o JSON Server está rodando em http://localhost:4000.');
+    }
+  };
+
+  const handleRateCommunityLevel = async (level: Level, stars: number) => {
+    if (!level.id) { alert('Nível inválido para avaliação.'); return; }
+    const userName = (authorName || localStorage.getItem('logicReflectAuthor') || '').trim() || 'Visitante';
+    const existing = communityRatings.find(r => r.levelId === level.id && r.user === userName);
+    try {
+      let resp: Response;
+      if (existing?.id) {
+        resp = await fetch(`${COMMUNITY_RATINGS_API}/${existing.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ stars, at: Date.now() }),
+        });
+      } else {
+        const entry = { levelId: level.id, user: userName, stars, at: Date.now() } as CommunityRating;
+        resp = await fetch(COMMUNITY_RATINGS_API, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(entry),
+        });
+      }
+      if (!resp.ok) throw new Error('Erro ao avaliar');
+      const rts = await fetch(COMMUNITY_RATINGS_API).then(r => r.json());
+      setCommunityRatings(rts);
+    } catch (e) {
+      alert('Não foi possível enviar sua avaliação. Verifique o JSON Server.');
+    }
   };
 
   const handleLoadLevelToPlay = (level: Level) => { setActiveLevel(level); setView('PLAY'); };
@@ -441,12 +531,32 @@ const App: React.FC = () => {
 
   const totalGlobalCoins = useMemo(() => savedLevels.reduce((sum, level) => sum + (level.highScore || 0), 0), [savedLevels]);
 
+  const ratingsSummary = useMemo(() => {
+    const summary: Record<number, { average: number; count: number }> = {};
+    for (const r of communityRatings) {
+      const key = r.levelId;
+      if (!summary[key]) summary[key] = { average: 0, count: 0 };
+      summary[key].average = ((summary[key].average * summary[key].count) + r.stars) / (summary[key].count + 1);
+      summary[key].count += 1;
+    }
+    return summary;
+  }, [communityRatings]);
+
   const renderContent = () => {
     switch (view) {
       case 'MENU':
-        return <MainMenu onOficina={() => setView('EDITOR')} onFases={() => setView('LEVEL_BROWSER')} onHistoria={() => setIsStoryOpen(true)} onRanking={() => setIsRankingOpen(true)} totalCoins={totalGlobalCoins} />;
+        return <MainMenu onOficina={() => setView('EDITOR')} onFases={() => setView('LEVEL_BROWSER')} onComunidade={() => setView('COMMUNITY_BROWSER')} onHistoria={() => setIsStoryOpen(true)} onRanking={() => setIsRankingOpen(true)} totalCoins={totalGlobalCoins} />;
       case 'LEVEL_BROWSER':
-        return <LevelBrowser levels={savedLevels} onPlay={handleLoadLevelToPlay} />;
+        return <LevelBrowser levels={savedLevels} onPlay={(lvl) => { setIsPlayingCommunity(false); handleLoadLevelToPlay(lvl); }} />;
+      case 'COMMUNITY_BROWSER':
+        return (
+          <CommunityBrowser
+            levels={communityLevels}
+            ratingsSummary={ratingsSummary}
+            onPlay={(lvl) => { setIsPlayingCommunity(true); handleLoadLevelToPlay(lvl); }}
+            onRate={(lvl, stars) => handleRateCommunityLevel(lvl, stars)}
+          />
+        );
       case 'EDITOR':
       case 'PLAY':
         if (!currentLevel) return <div>Carregando...</div>;
@@ -475,7 +585,7 @@ const App: React.FC = () => {
                       subState={editorSubState}
                       onSubStateChange={setEditorSubState}
                     />
-                    <EditorControls onTestLevel={() => { setActiveLevel(null); setView('PLAY'); }} onSaveLevel={handleSaveLevel} onClearGrid={() => { setEditorLevel(createBlankLevel()); setPaletteSelection(null); }} />
+                    <EditorControls authorName={authorName} onAuthorNameChange={setAuthorName} onTestLevel={() => { setActiveLevel(null); setView('PLAY'); }} onPublishLevel={handlePublishLevel} onClearGrid={() => { setEditorLevel(createBlankLevel()); setPaletteSelection(null); }} />
                   </>
                 ) : (
                   <>
@@ -486,7 +596,6 @@ const App: React.FC = () => {
                     <Controls status={gameStatus} onPlay={handlePlay} onReset={resetBoard} canPlay={currentLevel.startPosition.x !== -1} isPlayingCustom={!isTestMode}/>
                     {isTestMode && (
                         <div className="flex items-center justify-center space-x-4 p-4 bg-gray-800 rounded-lg border border-gray-700">
-                             <button onClick={handleSaveLevel} className="px-8 py-3 bg-blue-600 text-white font-bold text-lg rounded-lg shadow-md hover:bg-blue-500">Salvar</button>
                              <button onClick={handleReturnToEditor} className="px-8 py-3 bg-purple-600 text-white font-bold text-lg rounded-lg shadow-md hover:bg-purple-500">Editar</button>
                         </div>
                     )}
@@ -498,6 +607,15 @@ const App: React.FC = () => {
       default: return null;
     }
   };
+
+  // Ajusta trilha conforme contexto (menu/abertura, jogo, comunidade)
+  useEffect(() => {
+    let context: 'menu' | 'play' | 'community' = 'menu';
+    if (view === 'PLAY') context = isPlayingCommunity ? 'community' : 'play';
+    else if (view === 'COMMUNITY_BROWSER') context = 'community';
+    // Qualquer estado de abertura/intro permanece com a trilha de menu
+    document.dispatchEvent(new CustomEvent('logicReflect:music:setContext', { detail: { context } }));
+  }, [view, isStartOpen, isIntroOpen, isPlayingCommunity]);
 
   return (
     <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-4 sm:p-8 font-sans">
@@ -515,13 +633,22 @@ const App: React.FC = () => {
       {directionModal.isOpen && <DirectionModal prompt={directionModal.prompt} onSelectDirection={directionModal.onSelect} />}
       <StoryModal isOpen={isStoryOpen} onClose={() => setIsStoryOpen(false)} />
       <IntroCinematic isOpen={isIntroOpen} onClose={() => { setIsIntroOpen(false); setView('MENU'); }} />
-      <StartScreen isOpen={isStartOpen} onStart={() => { setIsStartOpen(false); setIsIntroOpen(true); }} onSkipMenu={() => { setIsStartOpen(false); setIsIntroOpen(false); setView('MENU'); }} />
+      <StartScreen isOpen={isStartOpen} onStart={() => { setIsStartOpen(false); setIsIntroOpen(true); try { localStorage.setItem('logicReflectMusicEnabled', 'true'); } catch {}; document.dispatchEvent(new Event('logicReflect:music:play')); }} onSkipMenu={() => { setIsStartOpen(false); setIsIntroOpen(false); setView('MENU'); }} />
       <InitialsModal open={isInitialsOpen && gameStatus === 'FAIL'} score={liveSimStateRef.current?.collectedCoins || 0} onSave={saveRankingEntry} onCancel={() => setIsInitialsOpen(false)} />
       {!(gameStatus === 'FAIL' && isInitialsOpen) && (
-        <Modal status={gameStatus} onNextLevel={handleModalNext} onReset={resetBoard} isTestMode={view === 'PLAY' && !activeLevel} onSaveLevel={handleSaveLevel} onGoToEditor={handleReturnToEditor} />
+        <Modal status={gameStatus} onNextLevel={handleModalNext} onReset={resetBoard} isTestMode={view === 'PLAY' && !activeLevel} onGoToEditor={handleReturnToEditor} />
       )}
       <RankingModal open={isRankingOpen} entries={ranking} onClose={() => setIsRankingOpen(false)} />
       <ConfirmEffect visible={showConfirmEffect} />
+      <MusicPlayer />
+      <SettingsModal open={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+      <button
+        onClick={() => setIsSettingsOpen(true)}
+        className="fixed bottom-4 right-4 z-50 px-4 py-2 bg-gray-800 border border-gray-700 text-white rounded-lg shadow hover:bg-gray-700"
+        aria-label="Abrir Configurações"
+      >
+        Configurações
+      </button>
     </div>
   );
 };
