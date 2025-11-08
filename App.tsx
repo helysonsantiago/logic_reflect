@@ -22,9 +22,55 @@ import { MusicPlayer } from './components/MusicPlayer'
 import { SettingsModal } from './components/SettingsModal'
 
 // API endpoints (JSON Server)
-const RANKING_API = 'http://localhost:4000/ranking';
-const COMMUNITY_LEVELS_API = 'http://localhost:4000/communityLevels';
-const COMMUNITY_RATINGS_API = 'http://localhost:4000/communityRatings';
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:4000';
+const RANKING_API = `${API_BASE}/ranking`;
+const COMMUNITY_LEVELS_API = `${API_BASE}/communityLevels`;
+const COMMUNITY_RATINGS_API = `${API_BASE}/communityRatings`;
+
+// Git-only mode configuration (reads db.json from GitHub)
+const API_MODE = (import.meta.env.VITE_API_MODE || 'json-server') as 'json-server' | 'git';
+const GITHUB_OWNER = import.meta.env.VITE_GITHUB_OWNER || '';
+const GITHUB_REPO = import.meta.env.VITE_GITHUB_REPO || '';
+const GITHUB_REF = import.meta.env.VITE_GITHUB_REF || 'main';
+const GITHUB_TOKEN = import.meta.env.VITE_GITHUB_TOKEN || '';
+
+async function fetchGitDb(owner: string, repo: string, ref: string): Promise<{ ranking?: any[]; communityLevels?: any[]; communityRatings?: any[]; }>
+{
+  const url = `https://api.github.com/repos/${owner}/${repo}/contents/db.json?ref=${ref}`;
+  const res = await fetch(url, { headers: GITHUB_TOKEN ? { Authorization: `Bearer ${GITHUB_TOKEN}` } : undefined });
+  if (!res.ok) throw new Error('Failed to fetch GitHub db.json');
+  const data = await res.json();
+  const content = (data && data.content) ? atob(String(data.content).replace(/\n/g, '')) : '';
+  return JSON.parse(content || '{}');
+}
+
+async function loadGitDbMeta(owner: string, repo: string, ref: string): Promise<{ sha: string; json: any }>{
+  const url = `https://api.github.com/repos/${owner}/${repo}/contents/db.json?ref=${ref}`;
+  const res = await fetch(url, { headers: GITHUB_TOKEN ? { Authorization: `Bearer ${GITHUB_TOKEN}` } : undefined });
+  if (!res.ok) throw new Error('Failed to fetch GitHub db.json meta');
+  const meta = await res.json();
+  const content = (meta && meta.content) ? atob(String(meta.content).replace(/\n/g, '')) : '';
+  const json = JSON.parse(content || '{}');
+  return { sha: meta.sha, json };
+}
+
+async function updateGitDb(patch: (db: any) => any, message: string): Promise<any> {
+  if (!GITHUB_OWNER || !GITHUB_REPO || !GITHUB_TOKEN) throw new Error('Missing GitHub configuration');
+  const { sha, json } = await loadGitDbMeta(GITHUB_OWNER, GITHUB_REPO, GITHUB_REF);
+  const next = patch(json || {});
+  const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(next, null, 2))));
+  const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/db.json`;
+  const resp = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${GITHUB_TOKEN}`,
+    },
+    body: JSON.stringify({ message, content: encoded, sha, branch: GITHUB_REF }),
+  });
+  if (!resp.ok) throw new Error('Failed to update GitHub db.json');
+  return resp.json();
+}
 
 const EDITOR_GRID_SIZE = 10;
 const createBlankLevel = (): Level => ({
@@ -115,21 +161,37 @@ const App: React.FC = () => {
       const merged = builtins;
       setSavedLevels(merged);
       localStorage.setItem('logicReflectLevels', JSON.stringify(merged));
-
-      // Primeiro tenta carregar do servidor; se falhar, usa localStorage
-      fetch(RANKING_API)
-        .then(res => res.ok ? res.json() : Promise.reject())
-        .then((data: any[]) => {
-          const serverRanking = [...data].sort((a,b) => b.score - a.score).slice(0, 10);
-          setRanking(serverRanking);
-          try { localStorage.setItem('logicReflectRanking', JSON.stringify(serverRanking)); } catch {}
-        })
-        .catch(() => {
-          const storedRanking = localStorage.getItem('logicReflectRanking');
-          if (storedRanking) {
-            try { setRanking(JSON.parse(storedRanking)); } catch {}
-          }
-        });
+      if (API_MODE === 'git' && GITHUB_OWNER && GITHUB_REPO) {
+        fetchGitDb(GITHUB_OWNER, GITHUB_REPO, GITHUB_REF)
+          .then(db => {
+            const serverRanking = [...(db.ranking || [])].sort((a,b) => b.score - a.score).slice(0, 10);
+            setRanking(serverRanking);
+            setCommunityLevels(db.communityLevels || []);
+            setCommunityRatings(db.communityRatings || []);
+            try { localStorage.setItem('logicReflectRanking', JSON.stringify(serverRanking)); } catch {}
+          })
+          .catch(() => {
+            const storedRanking = localStorage.getItem('logicReflectRanking');
+            if (storedRanking) {
+              try { setRanking(JSON.parse(storedRanking)); } catch {}
+            }
+          });
+      } else {
+        // Primeiro tenta carregar do servidor; se falhar, usa localStorage
+        fetch(RANKING_API)
+          .then(res => res.ok ? res.json() : Promise.reject())
+          .then((data: any[]) => {
+            const serverRanking = [...data].sort((a,b) => b.score - a.score).slice(0, 10);
+            setRanking(serverRanking);
+            try { localStorage.setItem('logicReflectRanking', JSON.stringify(serverRanking)); } catch {}
+          })
+          .catch(() => {
+            const storedRanking = localStorage.getItem('logicReflectRanking');
+            if (storedRanking) {
+              try { setRanking(JSON.parse(storedRanking)); } catch {}
+            }
+          });
+      }
     } catch (error) {
       console.error('Failed to load levels:', error);
     }
@@ -137,6 +199,7 @@ const App: React.FC = () => {
 
   // Carrega níveis e avaliações da comunidade
   useEffect(() => {
+    if (API_MODE === 'git') return; // já carregado junto do ranking via Git
     const fetchCommunity = async () => {
       try {
         const [levelsRes, ratingsRes] = await Promise.all([
@@ -403,6 +466,39 @@ const App: React.FC = () => {
   };
 
   const handlePublishLevel = async () => {
+    if (API_MODE === 'git') {
+      if (GITHUB_TOKEN && GITHUB_OWNER && GITHUB_REPO) {
+        try {
+          const name = (authorName || localStorage.getItem('logicReflectAuthor') || '').trim() || 'Anônimo';
+          const totalCoins = editorLevel.grid.flat().filter(t => t === 'coin').length;
+          const levelToPublish: Level = { ...editorLevel, totalCoins, origin: 'community', createdBy: name };
+          await updateGitDb((db: any) => {
+            const levels: any[] = Array.isArray(db.communityLevels) ? db.communityLevels : [];
+            const existing = levels.find(l => (l.createdBy || 'Anônimo') === name);
+            if (existing) {
+              // update existing, keep id
+              const updated = { ...existing, ...levelToPublish, id: existing.id };
+              db.communityLevels = levels.map(l => (l.id === existing.id ? updated : l));
+            } else {
+              const nextId = (levels.reduce((m, it) => Math.max(m, Number(it.id || 0)), 0) || 0) + 1;
+              db.communityLevels = [...levels, { ...levelToPublish, id: nextId }];
+            }
+            return db;
+          }, `Publish community level by ${name}`);
+          const db = await fetchGitDb(GITHUB_OWNER, GITHUB_REPO, GITHUB_REF);
+          setCommunityLevels(db.communityLevels || []);
+          alert('Fase publicada na comunidade (commit no Git)!');
+          setView('COMMUNITY_BROWSER');
+        } catch (e) {
+          console.error(e);
+          alert('Não foi possível publicar via GitHub. Verifique token/permissões.');
+        }
+        return;
+      }
+      const ghEditUrl = (GITHUB_OWNER && GITHUB_REPO) ? `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/edit/${GITHUB_REF}/db.json` : 'https://github.com/';
+      alert(`Modo Git ativado: configure VITE_GITHUB_TOKEN para publicar automaticamente.\nSem token, edite via PR: ${ghEditUrl}`);
+      return;
+    }
     const name = (authorName || localStorage.getItem('logicReflectAuthor') || '').trim() || 'Anônimo';
     const totalCoins = editorLevel.grid.flat().filter(t => t === 'coin').length;
     const levelToPublish: Level = {
@@ -432,6 +528,34 @@ const App: React.FC = () => {
   };
 
   const handleRateCommunityLevel = async (level: Level, stars: number) => {
+    if (API_MODE === 'git') {
+      if (GITHUB_TOKEN && GITHUB_OWNER && GITHUB_REPO) {
+        try {
+          const userName = (authorName || localStorage.getItem('logicReflectAuthor') || '').trim() || 'Visitante';
+          await updateGitDb((db: any) => {
+            const ratings: any[] = Array.isArray(db.communityRatings) ? db.communityRatings : [];
+            const existing = ratings.find(r => r.levelId === level.id && r.user === userName);
+            if (existing) {
+              db.communityRatings = ratings.map(r => r.id === existing.id ? { ...existing, stars, at: Date.now() } : r);
+            } else {
+              const nextId = (ratings.reduce((m, it) => Math.max(m, Number(it.id || 0)), 0) || 0) + 1;
+              db.communityRatings = [...ratings, { levelId: level.id, user: userName, stars, at: Date.now(), id: nextId }];
+            }
+            return db;
+          }, `Rate community level ${level.id} by ${userName}`);
+          const db = await fetchGitDb(GITHUB_OWNER, GITHUB_REPO, GITHUB_REF);
+          setCommunityRatings(db.communityRatings || []);
+          alert('Obrigado pela avaliação! (gravada via commit)');
+        } catch (e) {
+          console.error(e);
+          alert('Não foi possível avaliar via GitHub. Verifique token/permissões.');
+        }
+        return;
+      }
+      const ghEditUrl = (GITHUB_OWNER && GITHUB_REPO) ? `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/edit/${GITHUB_REF}/db.json` : 'https://github.com/';
+      alert(`Modo Git ativado: configure VITE_GITHUB_TOKEN para avaliar automaticamente.\nSem token, edite via PR: ${ghEditUrl}`);
+      return;
+    }
     if (!level.id) { alert('Nível inválido para avaliação.'); return; }
     const userName = (authorName || localStorage.getItem('logicReflectAuthor') || '').trim() || 'Visitante';
     const existing = communityRatings.find(r => r.levelId === level.id && r.user === userName);
@@ -509,6 +633,35 @@ const App: React.FC = () => {
       level: currentLevel?.name,
       at: Date.now(),
     };
+    if (API_MODE === 'git') {
+      if (GITHUB_TOKEN && GITHUB_OWNER && GITHUB_REPO) {
+        try {
+          await updateGitDb((db: any) => {
+            const list: any[] = Array.isArray(db.ranking) ? db.ranking : [];
+            const nextId = (list.reduce((m, it) => Math.max(m, Number(it.id || 0)), 0) || 0) + 1;
+            db.ranking = [...list, { ...entry, id: nextId }];
+            return db;
+          }, `Add ranking entry by ${initials}`);
+          const db = await fetchGitDb(GITHUB_OWNER, GITHUB_REPO, GITHUB_REF);
+          const serverRanking = [...(db.ranking || [])].sort((a,b) => b.score - a.score).slice(0, 10);
+          setRanking(serverRanking);
+          try { localStorage.setItem('logicReflectRanking', JSON.stringify(serverRanking)); } catch {}
+        } catch (e) {
+          console.error(e);
+          // Fallback local
+          const newRanking = [...ranking, entry].sort((a,b) => b.score - a.score).slice(0, 10);
+          setRanking(newRanking);
+          try { localStorage.setItem('logicReflectRanking', JSON.stringify(newRanking)); } catch {}
+        }
+        setIsInitialsOpen(false);
+        return;
+      }
+      const newRanking = [...ranking, entry].sort((a,b) => b.score - a.score).slice(0, 10);
+      setRanking(newRanking);
+      try { localStorage.setItem('logicReflectRanking', JSON.stringify(newRanking)); } catch {}
+      setIsInitialsOpen(false);
+      return;
+    }
     // Tenta salvar no servidor; se falhar, faz fallback para localStorage
     try {
       const resp = await fetch(RANKING_API, {
@@ -555,6 +708,7 @@ const App: React.FC = () => {
             ratingsSummary={ratingsSummary}
             onPlay={(lvl) => { setIsPlayingCommunity(true); handleLoadLevelToPlay(lvl); }}
             onRate={(lvl, stars) => handleRateCommunityLevel(lvl, stars)}
+            ratingsEnabled={API_MODE !== 'git' || !!GITHUB_TOKEN}
           />
         );
       case 'EDITOR':

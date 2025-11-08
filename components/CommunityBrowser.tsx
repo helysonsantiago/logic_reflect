@@ -8,9 +8,10 @@ interface CommunityBrowserProps {
   ratingsSummary: RatingsSummary;
   onPlay: (level: Level) => void;
   onRate: (level: Level, stars: number) => void;
+  ratingsEnabled?: boolean;
 }
 
-export const CommunityBrowser: React.FC<CommunityBrowserProps> = ({ levels, ratingsSummary, onPlay, onRate }) => {
+export const CommunityBrowser: React.FC<CommunityBrowserProps> = ({ levels, ratingsSummary, onPlay, onRate, ratingsEnabled = true }) => {
 
   const renderStars = (level: Level) => {
     const id = level.id || 0;
@@ -18,17 +19,23 @@ export const CommunityBrowser: React.FC<CommunityBrowserProps> = ({ levels, rati
     const stars = [1, 2, 3, 4, 5];
     return (
       <div className="flex items-center gap-2">
-        <div className="flex">
-          {stars.map(s => (
-            <button
-              key={s}
-              title={`${s} estrela${s > 1 ? 's' : ''}`}
-              onClick={() => level.id && onRate(level, s)}
-              className="text-yellow-400 hover:text-yellow-300"
-            >{s <= Math.round(summary.average) ? '★' : '☆'}</button>
-          ))}
-        </div>
-        <span className="text-xs text-gray-400">{summary.average.toFixed(1)} ({summary.count})</span>
+        {ratingsEnabled ? (
+          <>
+            <div className="flex">
+              {stars.map(s => (
+                <button
+                  key={s}
+                  title={`${s} estrela${s > 1 ? 's' : ''}`}
+                  onClick={() => level.id && onRate(level, s)}
+                  className="text-yellow-400 hover:text-yellow-300"
+                >{s <= Math.round(summary.average) ? '★' : '☆'}</button>
+              ))}
+            </div>
+            <span className="text-xs text-gray-400">{summary.average.toFixed(1)} ({summary.count})</span>
+          </>
+        ) : (
+          <span className="text-xs text-gray-400">Avaliações indisponíveis no modo Git</span>
+        )}
       </div>
     );
   };
