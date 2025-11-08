@@ -559,28 +559,16 @@ const App: React.FC = () => {
         createdBy: name,
       };
       try {
-        const { data: existing, error: findErr } = await supabase
-          .from('community_levels')
-          .select('id,created_by')
-          .eq('created_by', name)
-          .limit(1)
-          .maybeSingle();
-        if (findErr) console.warn(findErr);
         const row = levelToSupaRow(levelToPublish, name);
-        if (existing?.id) {
-          const { error } = await supabase.from('community_levels').update(row).eq('id', existing.id);
-          if (error) throw error;
-        } else {
-          const { error } = await supabase.from('community_levels').insert(row);
-          if (error) throw error;
-        }
+        const { error } = await supabase.from('community_levels').insert({ ...row, created_at: new Date().toISOString() });
+        if (error) throw error;
         const { data: lvls } = await supabase.from('community_levels').select('*');
         setCommunityLevels((lvls || []).map(supaLevelToLevel));
         alert('Fase publicada na comunidade!');
         setView('COMMUNITY_BROWSER');
       } catch (e) {
         console.error(e);
-        alert('Não foi possível publicar. Verifique credenciais do backend.');
+        alert('Não foi possível publicar. Verifique credenciais/políticas do backend.');
       }
       return;
     }

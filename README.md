@@ -74,6 +74,6 @@ create policy "ratings update" on community_ratings for update using (true) with
 ```
 
 Uso no app:
-- Publicar fase: insere/atualiza em `community_levels` (um por autor).
+- Publicar fase: insere nova fase em `community_levels` (múltiplas por autor).
 - Avaliar fase: insere/atualiza em `community_ratings` por `(level_id, user_name)`.
 - Ranking: insere em `ranking` e lista top 10 por `score`.
