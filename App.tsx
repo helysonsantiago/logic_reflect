@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { createClient } from '@supabase/supabase-js';
 import { Controls } from './components/Controls';
 import { Grid } from './components/Grid';
 import { Inventory } from './components/Inventory';
@@ -28,11 +29,16 @@ const COMMUNITY_LEVELS_API = `${API_BASE}/communityLevels`;
 const COMMUNITY_RATINGS_API = `${API_BASE}/communityRatings`;
 
 // Git-only mode configuration (reads db.json from GitHub)
-const API_MODE = (import.meta.env.VITE_API_MODE || 'json-server') as 'json-server' | 'git';
+const API_MODE = (import.meta.env.VITE_API_MODE || 'json-server') as 'json-server' | 'git' | 'supabase';
 const GITHUB_OWNER = import.meta.env.VITE_GITHUB_OWNER || '';
 const GITHUB_REPO = import.meta.env.VITE_GITHUB_REPO || '';
 const GITHUB_REF = import.meta.env.VITE_GITHUB_REF || 'main';
 const GITHUB_TOKEN = import.meta.env.VITE_GITHUB_TOKEN || '';
+
+// Supabase configuration
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+const supabase = (SUPABASE_URL && SUPABASE_ANON_KEY) ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
 async function fetchGitDb(owner: string, repo: string, ref: string): Promise<{ ranking?: any[]; communityLevels?: any[]; communityRatings?: any[]; }>
 {
@@ -70,6 +76,59 @@ async function updateGitDb(patch: (db: any) => any, message: string): Promise<an
   });
   if (!resp.ok) throw new Error('Failed to update GitHub db.json');
   return resp.json();
+}
+
+// Helpers: map between Supabase rows and app types
+function supaLevelToLevel(row: any): Level {
+  return {
+    id: row.id,
+    name: row.name,
+    grid: row.grid || [],
+    startPosition: row.start_position || { x: -1, y: -1 },
+    startDirection: row.start_direction || { dx: 1, dy: 0 },
+    inventory: row.inventory || { 'rotator-cw': 1, 'rotator-ccw': 1, 'mirror': 1 },
+    teleporters: row.teleporters || [],
+    forceTiles: row.force_tiles || [],
+    highScore: row.high_score || 0,
+    totalCoins: row.total_coins || 0,
+    origin: row.origin || 'community',
+    createdBy: row.created_by || 'Anônimo',
+  } as Level;
+}
+
+function levelToSupaRow(level: Level, createdByName?: string) {
+  return {
+    name: level.name,
+    grid: level.grid,
+    start_position: level.startPosition,
+    start_direction: level.startDirection,
+    inventory: level.inventory,
+    teleporters: level.teleporters,
+    force_tiles: level.forceTiles,
+    total_coins: level.totalCoins || 0,
+    high_score: level.highScore || 0,
+    origin: level.origin || 'community',
+    created_by: createdByName || level.createdBy || 'Anônimo',
+  };
+}
+
+function supaRatingToRating(row: any): CommunityRating {
+  return {
+    id: row.id,
+    levelId: row.level_id,
+    user: row.user_name,
+    stars: row.stars,
+    at: row.at ? new Date(row.at).getTime() : Date.now(),
+  };
+}
+
+function supaRankingToEntry(row: any): RankingEntry {
+  return {
+    initials: row.initials,
+    score: row.score,
+    level: row.level,
+    at: row.at ? new Date(row.at).getTime() : Date.now(),
+  };
 }
 
 const EDITOR_GRID_SIZE = 10;
@@ -176,6 +235,23 @@ const App: React.FC = () => {
               try { setRanking(JSON.parse(storedRanking)); } catch {}
             }
           });
+      } else if (API_MODE === 'supabase' && supabase) {
+        supabase.from('ranking')
+          .select('*')
+          .order('score', { ascending: false })
+          .limit(10)
+          .then(({ data, error }) => {
+            if (error) throw error;
+            const serverRanking = (data || []).map(supaRankingToEntry);
+            setRanking(serverRanking);
+            try { localStorage.setItem('logicReflectRanking', JSON.stringify(serverRanking)); } catch {}
+          })
+          .catch(() => {
+            const storedRanking = localStorage.getItem('logicReflectRanking');
+            if (storedRanking) {
+              try { setRanking(JSON.parse(storedRanking)); } catch {}
+            }
+          });
       } else {
         // Primeiro tenta carregar do servidor; se falhar, usa localStorage
         fetch(RANKING_API)
@@ -200,6 +276,24 @@ const App: React.FC = () => {
   // Carrega níveis e avaliações da comunidade
   useEffect(() => {
     if (API_MODE === 'git') return; // já carregado junto do ranking via Git
+    if (API_MODE === 'supabase' && supabase) {
+      const fetchCommunity = async () => {
+        try {
+          const [{ data: lvls, error: lerr }, { data: rts, error: rerr }] = await Promise.all([
+            supabase.from('community_levels').select('*'),
+            supabase.from('community_ratings').select('*'),
+          ]);
+          if (lerr) console.warn('Erro ao carregar levels da comunidade:', lerr);
+          if (rerr) console.warn('Erro ao carregar ratings da comunidade:', rerr);
+          setCommunityLevels((lvls || []).map(supaLevelToLevel));
+          setCommunityRatings((rts || []).map(supaRatingToRating));
+        } catch (e) {
+          console.warn('Falha ao carregar dados da comunidade (Supabase):', e);
+        }
+      };
+      fetchCommunity();
+      return;
+    }
     const fetchCommunity = async () => {
       try {
         const [levelsRes, ratingsRes] = await Promise.all([
@@ -499,6 +593,41 @@ const App: React.FC = () => {
       alert(`Modo Git ativado: configure VITE_GITHUB_TOKEN para publicar automaticamente.\nSem token, edite via PR: ${ghEditUrl}`);
       return;
     }
+    if (API_MODE === 'supabase' && supabase) {
+      const name = (authorName || localStorage.getItem('logicReflectAuthor') || '').trim() || 'Anônimo';
+      const totalCoins = editorLevel.grid.flat().filter(t => t === 'coin').length;
+      const levelToPublish: Level = {
+        ...editorLevel,
+        totalCoins,
+        origin: 'community',
+        createdBy: name,
+      };
+      try {
+        const { data: existing, error: findErr } = await supabase
+          .from('community_levels')
+          .select('id,created_by')
+          .eq('created_by', name)
+          .limit(1)
+          .maybeSingle();
+        if (findErr) console.warn(findErr);
+        const row = levelToSupaRow(levelToPublish, name);
+        if (existing?.id) {
+          const { error } = await supabase.from('community_levels').update(row).eq('id', existing.id);
+          if (error) throw error;
+        } else {
+          const { error } = await supabase.from('community_levels').insert(row);
+          if (error) throw error;
+        }
+        const { data: lvls } = await supabase.from('community_levels').select('*');
+        setCommunityLevels((lvls || []).map(supaLevelToLevel));
+        alert('Fase publicada na comunidade (Supabase)!');
+        setView('COMMUNITY_BROWSER');
+      } catch (e) {
+        console.error(e);
+        alert('Não foi possível publicar via Supabase. Verifique políticas RLS/credenciais.');
+      }
+      return;
+    }
     const name = (authorName || localStorage.getItem('logicReflectAuthor') || '').trim() || 'Anônimo';
     const totalCoins = editorLevel.grid.flat().filter(t => t === 'coin').length;
     const levelToPublish: Level = {
@@ -554,6 +683,39 @@ const App: React.FC = () => {
       }
       const ghEditUrl = (GITHUB_OWNER && GITHUB_REPO) ? `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/edit/${GITHUB_REF}/db.json` : 'https://github.com/';
       alert(`Modo Git ativado: configure VITE_GITHUB_TOKEN para avaliar automaticamente.\nSem token, edite via PR: ${ghEditUrl}`);
+      return;
+    }
+    if (API_MODE === 'supabase' && supabase) {
+      if (!level.id) { alert('Nível inválido para avaliação.'); return; }
+      const userName = (authorName || localStorage.getItem('logicReflectAuthor') || '').trim() || 'Visitante';
+      try {
+        const { data: existing, error: findErr } = await supabase
+          .from('community_ratings')
+          .select('id')
+          .eq('level_id', level.id)
+          .eq('user_name', userName)
+          .limit(1)
+          .maybeSingle();
+        if (findErr) console.warn(findErr);
+        if (existing?.id) {
+          const { error } = await supabase
+            .from('community_ratings')
+            .update({ stars, at: new Date().toISOString() })
+            .eq('id', existing.id);
+          if (error) throw error;
+        } else {
+          const { error } = await supabase
+            .from('community_ratings')
+            .insert({ level_id: level.id, user_name: userName, stars, at: new Date().toISOString() });
+          if (error) throw error;
+        }
+        const { data: rts } = await supabase.from('community_ratings').select('*');
+        setCommunityRatings((rts || []).map(supaRatingToRating));
+        alert('Obrigado pela avaliação! (gravada no Supabase)');
+      } catch (e) {
+        console.error(e);
+        alert('Não foi possível avaliar via Supabase. Verifique políticas RLS/credenciais.');
+      }
       return;
     }
     if (!level.id) { alert('Nível inválido para avaliação.'); return; }
@@ -659,6 +821,28 @@ const App: React.FC = () => {
       const newRanking = [...ranking, entry].sort((a,b) => b.score - a.score).slice(0, 10);
       setRanking(newRanking);
       try { localStorage.setItem('logicReflectRanking', JSON.stringify(newRanking)); } catch {}
+      setIsInitialsOpen(false);
+      return;
+    }
+    if (API_MODE === 'supabase' && supabase) {
+      try {
+        const entryRow = { initials, score: liveSimStateRef.current?.collectedCoins || 0, level: currentLevel?.name, at: new Date().toISOString() };
+        const { error } = await supabase.from('ranking').insert(entryRow);
+        if (error) throw error;
+        const { data: list } = await supabase
+          .from('ranking')
+          .select('*')
+          .order('score', { ascending: false })
+          .limit(10);
+        const serverRanking = (list || []).map(supaRankingToEntry);
+        setRanking(serverRanking);
+        try { localStorage.setItem('logicReflectRanking', JSON.stringify(serverRanking)); } catch {}
+      } catch (e) {
+        console.error(e);
+        const newRanking = [...ranking, { initials, score: liveSimStateRef.current?.collectedCoins || 0, level: currentLevel?.name, at: Date.now() }].sort((a,b) => b.score - a.score).slice(0, 10);
+        setRanking(newRanking);
+        try { localStorage.setItem('logicReflectRanking', JSON.stringify(newRanking)); } catch {}
+      }
       setIsInitialsOpen(false);
       return;
     }

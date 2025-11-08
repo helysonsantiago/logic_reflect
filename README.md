@@ -67,3 +67,41 @@ Requisitos:
 - O endpoint deve responder em `https` (evitar bloqueio de mixed content no deploy em Vercel).
 - CORS aberto (`Access-Control-Allow-Origin: *`), o JSON Server já habilita por padrão.
 - Para expor publicamente, inicie com `--host 0.0.0.0` (em seu provedor) e use uma URL pública.
+
+## Usar Supabase (recomendado)
+
+Configure o app para usar Supabase em vez de JSON Server:
+
+- `VITE_API_MODE=supabase`
+- `VITE_SUPABASE_URL=https://kdyhhnrlkioywfgpbtgb.supabase.co`
+- `VITE_SUPABASE_ANON_KEY=<sua chave anon>`
+
+Schema esperado (tabelas e colunas):
+- `ranking(id, initials text, score int, level text, at timestamp)`
+- `community_levels(id, name text, grid jsonb, start_position jsonb, start_direction jsonb, inventory jsonb, teleporters jsonb, force_tiles jsonb, total_coins int, high_score int, origin text, created_by text, created_at timestamp)`
+- `community_ratings(id, level_id bigint, user_name text, stars int, at timestamp)`
+
+Políticas RLS (para permitir leitura/escrita com chave anônima):
+```sql
+-- Ranking
+alter table ranking enable row level security;
+create policy "ranking select" on ranking for select using (true);
+create policy "ranking insert" on ranking for insert with check (true);
+
+-- Community Levels
+alter table community_levels enable row level security;
+create policy "levels select" on community_levels for select using (true);
+create policy "levels insert" on community_levels for insert with check (true);
+create policy "levels update" on community_levels for update using (true) with check (true);
+
+-- Community Ratings
+alter table community_ratings enable row level security;
+create policy "ratings select" on community_ratings for select using (true);
+create policy "ratings insert" on community_ratings for insert with check (true);
+create policy "ratings update" on community_ratings for update using (true) with check (true);
+```
+
+Uso no app:
+- Publicar fase: insere/atualiza em `community_levels` (um por autor).
+- Avaliar fase: insere/atualiza em `community_ratings` por `(level_id, user_name)`.
+- Ranking: insere em `ranking` e lista top 10 por `score`.
