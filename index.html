@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Logic Reflect</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      @keyframes spin-y {
+        from { transform: rotateY(0deg); }
+        to { transform: rotateY(360deg); }
+      }
+      .animate-spin-y {
+        animation: spin-y 2s linear infinite;
+      }
+      @keyframes teleport-spin {
+        0% { transform: rotate(0) scale(1); opacity: 1; }
+        100% { transform: rotate(720deg) scale(0); opacity: 0; }
+      }
+      .animate-teleport {
+          animation: teleport-spin 0.5s ease-in-out forwards;
+      }
+
+      /* Arcade-style flicker for titles */
+      @keyframes arcade-flicker {
+        0%, 18%, 22%, 25%, 53%, 57%, 100% { opacity: 1; }
+        20%, 24%, 55% { opacity: 0.6; }
+      }
+      .arcade-flicker { animation: arcade-flicker 2s linear infinite; }
+
+      /* Glow around selected letter */
+      .selector-glow { text-shadow: 0 0 8px rgba(56,189,248,0.8), 0 0 16px rgba(56,189,248,0.5); }
+
+      /* Letter change bump */
+      @keyframes letter-bump { 0% { transform: scale(1); } 50% { transform: scale(1.15) rotate(5deg); } 100% { transform: scale(1); } }
+      [class*="letter-cycle-"] { animation: letter-bump 200ms ease-in-out; }
+
+      /* Particle burst for confirmation */
+      .arcade-burst { position: absolute; inset: 0; pointer-events: none; }
+      .arcade-burst .particle {
+        position: absolute;
+        left: 50%; top: 40%;
+        width: 6px; height: 6px;
+        background: radial-gradient(circle, #fff, #f0f, #0ff);
+        border-radius: 9999px;
+        box-shadow: 0 0 8px rgba(255,255,255,0.9), 0 0 16px rgba(236,72,153,0.7);
+        transform: translate(-50%, -50%);
+        animation: burst-move 420ms ease-out forwards;
+      }
+      @keyframes burst-move {
+        0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+        90% { opacity: 1; }
+        100% { transform: translate(calc(-50% + var(--dx)*1px), calc(-50% + var(--dy)*1px)) scale(0.8); opacity: 0; }
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body class="bg-gray-900 text-white">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
