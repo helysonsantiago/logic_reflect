@@ -89,6 +89,7 @@ const App: React.FC = () => {
   const simCollectorRef = useRef<CollectorState | null>(null);
   const liveSimStateRef = useRef<SimulationState | null>(null);
   const gameStatusRef = useRef<GameStatus>('SETUP');
+  const skipNextResetRef = useRef<boolean>(false);
 
   // Mantém o status do jogo atualizado em uma ref para evitar closures obsoletas no setInterval
   useEffect(() => {
@@ -146,7 +147,13 @@ const App: React.FC = () => {
   }, [currentLevel]);
   
   useEffect(() => {
-    if(currentLevel) resetBoard();
+    if (!currentLevel) return;
+    if (skipNextResetRef.current) {
+      // Evita reset imediato quando atualizamos o nível após a vitória
+      skipNextResetRef.current = false;
+      return;
+    }
+    resetBoard();
   }, [currentLevel, resetBoard]);
 
   const handleWin = useCallback(() => {
@@ -158,6 +165,8 @@ const App: React.FC = () => {
         const liveSimState = liveSimStateRef.current || initialSimState();
         const nextHigh = Math.max(currentHighScore, liveSimState.collectedCoins);
         const updatedLevel = { ...activeLevel, highScore: nextHigh, completedAt: activeLevel.completedAt || Date.now() };
+        // Atualiza ponteiro do nível sem resetar imediatamente o tabuleiro
+        skipNextResetRef.current = true;
         setActiveLevel(updatedLevel);
         const newSavedLevels = savedLevels.map(l => l.name === updatedLevel.name ? updatedLevel : l);
         setSavedLevels(newSavedLevels);
