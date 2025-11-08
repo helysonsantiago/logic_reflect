@@ -20,17 +20,6 @@ View your app in AI Studio: https://ai.studio/apps/drive/17sDqieKDJX6OVyI4gIxZaa
    `npm run dev`
 4. Abra em `http://localhost:3000/`
 
-Backend remoto
-- O app consome um JSON Server remoto (Vercel, Railway, etc.).
-- Configure variáveis de ambiente:
-  - `VITE_API_MODE=json-server`
-  - `VITE_API_BASE=https://db-logic-reflect.vercel.app` (sem barra final)
-  - Faça o deploy com essas variáveis na Vercel.
-  
-Endpoints esperados:
-- `GET/POST \`${VITE_API_BASE}/ranking\``
-- `GET/PATCH/POST \`${VITE_API_BASE}/communityLevels\``
-- `GET/PATCH/POST \`${VITE_API_BASE}/communityRatings\``
 
 ## Deploy apenas usando Git (sem servidor)
 
@@ -49,24 +38,7 @@ Em ambientes como Vercel, processos longos (como `json-server`) não rodam. Para
   - Abra o link de edição do `db.json` no GitHub e envie um PR editando os blocos `communityLevels`/`communityRatings`.
 - O ranking continua gravando localmente (`localStorage`) para o jogador atual.
 
-Observação: se quiser usar um backend no futuro, basta trocar `VITE_API_MODE` para `json-server` e subir o `json-server` em um host acessível.
 
-## Usar JSON Server remoto
-
-Se você preferir um servidor separado (Railway, Render, Fly.io, etc.), defina:
-
-- `VITE_API_MODE=json-server`
-- `VITE_API_BASE=https://seu-json-server.exemplo.com` (sem barra final)
-
-O app consumirá:
-- `GET/POST \`${VITE_API_BASE}/ranking\``
-- `GET/PATCH/POST \`${VITE_API_BASE}/communityLevels\``
-- `GET/PATCH/POST \`${VITE_API_BASE}/communityRatings\``
-
-Requisitos:
-- O endpoint deve responder em `https` (evitar bloqueio de mixed content no deploy em Vercel).
-- CORS aberto (`Access-Control-Allow-Origin: *`), o JSON Server já habilita por padrão.
-- Para expor publicamente, inicie com `--host 0.0.0.0` (em seu provedor) e use uma URL pública.
 
 ## Usar Supabase (recomendado)
 

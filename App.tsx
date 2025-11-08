@@ -22,21 +22,10 @@ import { ConfirmEffect } from './components/ConfirmEffect'
 import { MusicPlayer } from './components/MusicPlayer'
 import { SettingsModal } from './components/SettingsModal'
 
-// === API AUTOMÁTICA: localhost (dev) ou Vercel (prod) ===
-const API_BASE = (() => {
-  if (typeof window === 'undefined') return 'https://db-logic-reflect.vercel.app';
-  const isLocal = window.location.hostname === 'localhost' || 
-                  window.location.hostname === '127.0.0.1' ||
-                  window.location.hostname.startsWith('192.168.');
-  return isLocal ? 'http://localhost:4000' : 'https://db-logic-reflect.vercel.app';
-})();
-
-const RANKING_API = `${API_BASE}/ranking`;
-const COMMUNITY_LEVELS_API = `${API_BASE}/communityLevels`;
-const COMMUNITY_RATINGS_API = `${API_BASE}/communityRatings`;
+// Removido suporte a JSON Server; utilizando apenas Supabase (e opcionalmente Git)
 
 // Git-only mode configuration (reads db.json from GitHub)
-const API_MODE = (import.meta.env.VITE_API_MODE || 'json-server') as 'json-server' | 'git' | 'supabase';
+const API_MODE = (import.meta.env.VITE_API_MODE || 'supabase') as 'git' | 'supabase';
 const GITHUB_OWNER = import.meta.env.VITE_GITHUB_OWNER || '';
 const GITHUB_REPO = import.meta.env.VITE_GITHUB_REPO || '';
 const GITHUB_REF = import.meta.env.VITE_GITHUB_REF || 'main';
@@ -256,21 +245,6 @@ const App: React.FC = () => {
               try { setRanking(JSON.parse(storedRanking)); } catch {}
             }
           });
-      } else {
-        // Primeiro tenta carregar do servidor; se falhar, usa localStorage
-        fetch(RANKING_API)
-          .then(res => res.ok ? res.json() : Promise.reject())
-          .then((data: any[]) => {
-            const serverRanking = [...data].sort((a,b) => b.score - a.score).slice(0, 10);
-            setRanking(serverRanking);
-            try { localStorage.setItem('logicReflectRanking', JSON.stringify(serverRanking)); } catch {}
-          })
-          .catch(() => {
-            const storedRanking = localStorage.getItem('logicReflectRanking');
-            if (storedRanking) {
-              try { setRanking(JSON.parse(storedRanking)); } catch {}
-            }
-          });
       }
     } catch (error) {
       console.error('Failed to load levels:', error);
@@ -299,25 +273,7 @@ const App: React.FC = () => {
       fetchCommunity();
       return;
     }
-    const fetchCommunity = async () => {
-      try {
-        const [levelsRes, ratingsRes] = await Promise.all([
-          fetch(COMMUNITY_LEVELS_API),
-          fetch(COMMUNITY_RATINGS_API),
-        ]);
-        if (levelsRes.ok) {
-          const lvls = await levelsRes.json();
-          setCommunityLevels(lvls);
-        }
-        if (ratingsRes.ok) {
-          const rts = await ratingsRes.json();
-          setCommunityRatings(rts);
-        }
-      } catch (e) {
-        console.warn('Falha ao carregar dados da comunidade:', e);
-      }
-    };
-    fetchCommunity();
+    // Sem JSON Server: dados da comunidade são carregados pelo Supabase quando ativo.
   }, []);
 
   const resetBoard = useCallback(() => {
@@ -637,23 +593,7 @@ const App: React.FC = () => {
       createdBy: name,
     };
 
-    try {
-      const existing = communityLevels.find(l => (l.createdBy || 'Anônimo') === name);
-      const url = existing?.id ? `${COMMUNITY_LEVELS_API}/${existing.id}` : COMMUNITY_LEVELS_API;
-      const method = existing?.id ? 'PATCH' : 'POST';
-      const resp = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(levelToPublish),
-      });
-      if (!resp.ok) throw new Error('Erro ao publicar');
-      const lvls = await fetch(COMMUNITY_LEVELS_API).then(r => r.json());
-      setCommunityLevels(lvls);
-      alert('Fase publicada na comunidade!');
-      setView('COMMUNITY_BROWSER');
-    } catch (e) {
-      alert('Erro ao publicar. Verifique se o servidor está online.');
-    }
+    alert('Publicação indisponível: backend JSON Server foi removido.');
   };
 
   const handleRateCommunityLevel = async (level: Level, stars: number) => {
@@ -723,27 +663,7 @@ const App: React.FC = () => {
     const userName = (authorName || localStorage.getItem('logicReflectAuthor') || '').trim() || 'Visitante';
     const existing = communityRatings.find(r => r.levelId === level.id && r.user === userName);
 
-    try {
-      let resp: Response;
-      if (existing?.id) {
-        resp = await fetch(`${COMMUNITY_RATINGS_API}/${existing.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ stars, at: Date.now() }),
-        });
-      } else {
-        resp = await fetch(COMMUNITY_RATINGS_API, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ levelId: level.id, user: userName, stars, at: Date.now() }),
-        });
-      }
-      if (!resp.ok) throw new Error();
-      const rts = await fetch(COMMUNITY_RATINGS_API).then(r => r.json());
-      setCommunityRatings(rts);
-    } catch (e) {
-      alert('Erro ao enviar avaliação.');
-    }
+    alert('Avaliação indisponível: backend JSON Server foi removido.');
   };
 
   const handleLoadLevelToPlay = (level: Level) => { setActiveLevel(level); setView('PLAY'); };
@@ -848,22 +768,10 @@ const App: React.FC = () => {
       return;
     }
     // Tenta salvar no servidor; se falhar, faz fallback para localStorage
-    try {
-      const resp = await fetch(RANKING_API, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(entry),
-      });
-      if (!resp.ok) throw new Error();
-      const list = await fetch(RANKING_API).then(r => r.json());
-      const serverRanking = [...list].sort((a,b) => b.score - a.score).slice(0, 10);
-      setRanking(serverRanking);
-      localStorage.setItem('logicReflectRanking', JSON.stringify(serverRanking));
-    } catch {
-      const newRanking = [...ranking, entry].sort((a,b) => b.score - a.score).slice(0, 10);
-      setRanking(newRanking);
-      localStorage.setItem('logicReflectRanking', JSON.stringify(newRanking));
-    }
+    // JSON Server removido: ranking é salvo via Supabase ou Git. Fallback local abaixo.
+    const newRanking = [...ranking, entry].sort((a,b) => b.score - a.score).slice(0, 10);
+    setRanking(newRanking);
+    localStorage.setItem('logicReflectRanking', JSON.stringify(newRanking));
     setIsInitialsOpen(false);
   }, [ranking, currentLevel]);
 
